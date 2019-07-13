@@ -21,6 +21,7 @@
       "./src/@types"
     ],
     "types": [
+      "node",
       "audio_context"
     ],
 

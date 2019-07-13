@@ -1,12 +1,9 @@
-import path from 'path'
 import webpack from 'webpack'
 
 module.exports = {
-  context: __dirname + '/src',
-  target: 'node',
-  mode: "production",
+  mode: 'production',
   entry: {
-    nesemu: './main.ts',
+    nesemu: './src/main.ts',
   },
   output: {
     path: __dirname,
@@ -14,11 +11,11 @@ module.exports = {
     sourceMapFilename: '[name].map',
   },
   resolve: {
-    extensions: ['.ts', '.js', '.tsx', '.jsx'],
+    extensions: ['.ts', '.js'],
   },
   module: {
     rules: [
-      { test: /\.ts$/, exclude: /node_modules/, use: { loader: 'ts-loader' } },
+      {test: /\.ts$/, include: /src/, exclude: /node_modules/, use: {loader: 'ts-loader'}},
     ],
   },
   optimization: {
