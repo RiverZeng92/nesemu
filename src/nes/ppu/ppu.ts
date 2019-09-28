@@ -714,6 +714,10 @@ export class Ppu {
     const sprite0x = this.oam[3]
     if (sprite0x >= 255)
       return
+    const leftVisible = SHOW_SPRITE_LEFT_8PX | SHOW_BG_LEFT_8PX
+    if ((this.regs[PpuReg.MASK] & leftVisible) !== leftVisible &&
+        sprite0x <= 0)
+      return
 
     const dy = this.getNonEmptySprite0Line()
     if (dy < 0 || hcount !== sprite0y + dy)
