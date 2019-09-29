@@ -167,7 +167,8 @@ class Mapper023Base extends Mapper {
       } else {  // cycle mode
         c += 185  // TODO: Calculate.
       }
-      if (c > 255) {
+      //if (c >= 255) {
+      if (c >= 260) {
         c = this.irqLatch
         this.options.cpu.requestIrq(IrqType.EXTERNAL)
       }
