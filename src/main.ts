@@ -11,6 +11,21 @@ import WindowManager from './wnd/window_manager'
 import './util/polyfill'
 import * as JSZip from 'jszip'
 
+import {MenuItemInfo, SubmenuItemInfo} from './wnd/wnd'
+const Z_MENUBAR = 1000
+const Z_MENU_SUBITEM = Z_MENUBAR + 1
+
+function getOffsetRect(parent: HTMLElement, target: HTMLElement) {
+  const prect = parent.getBoundingClientRect()
+  const trect = target.getBoundingClientRect()
+  return {
+    left: trect.left - prect.left,
+    top: trect.top - prect.top,
+    right: trect.right - prect.left,
+    bottom: trect.bottom - prect.top,
+  }
+}
+
 const DEFAULT_MASTER_VOLUME = 0.25
 
 // Request Animation Frame
@@ -40,14 +55,192 @@ class Main {
     AudioManager.setUp(audioContextClass)
     AudioManager.setMasterVolume(this.volume * DEFAULT_MASTER_VOLUME)
 
+    this.setUpSysmenu()
     this.setUpFileDrop()
-    this.setUpPaletLink()
-    this.setUpKeyConfigLink()
-    this.setUpGamePadLink()
     this.setUpVolumeLink()
-    this.setUpEqualizerLink()
-    this.setUpOpenRomLink()
     this.setUpBlur()
+  }
+
+  private setUpSysmenu(): void {
+    this.menuItems = [
+      {
+        label: '👾',
+        submenu: [
+          {
+            label: 'Open',
+            click: () => {
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = '.nes,.zip, application/zip'
+              input.onchange = (event) => {
+                if (!input.value)
+                  return
+                const fileList = input.files
+                if (fileList)
+                  this.createAppFromFiles(fileList, 0, 0)
+
+                // Clear.
+                input.value = ''
+              }
+              input.click()
+            },
+          },
+          {
+            label: 'Global palet',
+            click: () => this.openGlobalPaletWnd(),
+          },
+          {
+            label: 'Key config',
+            click: () => this.openKeyConfigWnd(),
+          },
+          {
+            label: 'Gamepad',
+            click: () => this.openGamepadWnd(),
+          },
+          {
+            label: 'Equalizer',
+            click: () => this.openEqualizerWnd(),
+          },
+        ],
+      },
+      {
+        label: 'Help',
+        submenu: [
+          {
+            label: 'About',
+            click: () => window.open('https://github.com/tyfkda/nesemu/', '_blank'),
+          },
+        ],
+      },
+    ]
+
+    const bar = document.getElementById('sysmenu-bar')
+    if (bar == null)
+      return
+
+    const itemElems: HTMLElement[] = []
+    let activeSubmenuIndex = -1
+    let closeSubmenu: (() => void) | null
+
+    const onClose = () => {
+      if (activeSubmenuIndex >= 0) {
+        const prev = itemElems[activeSubmenuIndex]
+        prev.classList.remove('opened')
+        activeSubmenuIndex = -1
+      }
+      closeSubmenu = null
+      //this.onEvent(WndEvent.CLOSE_MENU)
+      bar.classList.remove('selected')
+    }
+
+    const showSubmenu = (index: number) => {
+      const menuItem = this.menuItems[index]
+      if (!('submenu' in menuItem) || activeSubmenuIndex === index)
+        return
+
+      if (closeSubmenu != null)
+        closeSubmenu()
+
+      if (activeSubmenuIndex >= 0) {
+        const prev = itemElems[activeSubmenuIndex]
+        prev.classList.remove('opened')
+      }
+      const itemElem = itemElems[index]
+      activeSubmenuIndex = index
+      closeSubmenu = this.openSubmenu(menuItem, itemElem, onClose)
+      itemElem.classList.add('opened')
+      bar.classList.add('selected')
+    }
+
+    this.menuItems.forEach((menuItem: MenuItemInfo, index: number) => {
+      const itemElem = document.createElement('div')
+      itemElem.className = 'sysmenu-item full-height pull-left'
+      itemElem.innerText = menuItem.label
+      itemElem.addEventListener('click', event => {
+        event.stopPropagation()
+        if ('submenu' in menuItem) {
+          if (activeSubmenuIndex < 0) {
+            //this.onEvent(WndEvent.OPEN_MENU)
+            //const sysMenu = this.menuItems[MenuType.SYS].submenu
+            //sysMenu[SysMenuType.GAMEPAD].disabled = GamepadManager.isSupported()
+
+            showSubmenu(index)
+          } else {
+            if (closeSubmenu)
+              closeSubmenu()
+            onClose()
+          }
+        }
+      })
+      bar.appendChild(itemElem)
+      itemElems.push(itemElem)
+
+      itemElem.addEventListener('mouseenter', _event => {
+        if (activeSubmenuIndex >= 0 && activeSubmenuIndex !== index && 'submenu' in menuItem) {
+          showSubmenu(index)
+        }
+      })
+    })
+  }
+
+  private openSubmenu(menuItem: MenuItemInfo, itemElem: HTMLElement,
+                      onClose?: () => void): () => void
+  {
+    const subItemHolder = document.createElement('div')
+    subItemHolder.className = 'sysmenu menu-subitem-holder bottom'
+    subItemHolder.style.zIndex = String(Z_MENU_SUBITEM)
+    menuItem.submenu.forEach(submenuItem => {
+      const submenuRow = document.createElement('div')
+      submenuRow.className = 'submenu-row clearfix'
+      const subItemElem = document.createElement('div')
+      if (submenuItem.label !== '----') {
+        if (submenuItem.checked) {
+          const checked = document.createElement('div')
+          checked.className = 'submenu-check'
+          submenuRow.appendChild(checked)
+        }
+
+        subItemElem.innerText = submenuItem.label
+        if (submenuItem.disabled) {
+          subItemElem.className = 'menu-item disabled'
+        } else {
+          subItemElem.className = 'menu-item'
+          subItemElem.addEventListener('click', _event => {
+            if (submenuItem.click)
+              submenuItem.click()
+          })
+        }
+      } else {
+        const hr = document.createElement('hr')
+        hr.className = 'submenu-splitter'
+        submenuRow.appendChild(hr)
+      }
+      submenuRow.appendChild(subItemElem)
+      subItemHolder.appendChild(submenuRow)
+    })
+    this.root.appendChild(subItemHolder)
+
+    const rect = getOffsetRect(this.root, itemElem)
+    DomUtil.setStyles(subItemHolder, {
+      left: `${rect.left - 1}px`,  // For border size
+      bottom: `0px`,
+    })
+
+    const close = () => {
+      if (subItemHolder.parentNode != null)
+        subItemHolder.parentNode.removeChild(subItemHolder)
+      document.removeEventListener('click', onClickOther)
+    }
+
+    // To handle earlier than menu open, pass useCapture=true
+    const onClickOther = (_event: MouseEvent) => {
+      close()
+      if (onClose != null)
+        onClose()
+    }
+    document.addEventListener('click', onClickOther /*, true*/)
+
+    return close
   }
 
   private setUpFileDrop(): void {
@@ -220,62 +413,41 @@ class Main {
       this.apps.splice(index, 1)
   }
 
-  private setUpPaletLink(): void {
-    const text = document.getElementById('palet')
-    if (text == null)
-      return
-
-    text.addEventListener('click', () => {
-      if (this.globalPaletWnd == null) {
-        this.globalPaletWnd = new GlobalPaletWnd(this.wndMgr, () => {
-          this.globalPaletWnd = null
-        })
-        this.wndMgr.add(this.globalPaletWnd)
-      } else {
-        this.wndMgr.moveToTop(this.globalPaletWnd)
-      }
-    })
+  private openGlobalPaletWnd(): void {
+    if (this.globalPaletWnd == null) {
+      this.globalPaletWnd = new GlobalPaletWnd(this.wndMgr, () => {
+        this.globalPaletWnd = null
+      })
+      this.wndMgr.add(this.globalPaletWnd)
+    } else {
+      this.wndMgr.moveToTop(this.globalPaletWnd)
+    }
   }
 
-  private setUpKeyConfigLink(): void {
-    KeyConfigWnd.loadSetting()
-
-    const keyConfigText = document.getElementById('keyconfig')
-    if (keyConfigText == null)
-      return
-
-    keyConfigText.addEventListener('click', () => {
-      if (this.keyConfigWnd == null) {
-        this.keyConfigWnd = new KeyConfigWnd(this.wndMgr, () => {
-          this.keyConfigWnd = null
-        })
-        this.wndMgr.add(this.keyConfigWnd)
-      } else {
-        this.wndMgr.moveToTop(this.keyConfigWnd)
-      }
-    })
+  private openKeyConfigWnd(): void {
+    if (this.keyConfigWnd == null) {
+      this.keyConfigWnd = new KeyConfigWnd(this.wndMgr, () => {
+        this.keyConfigWnd = null
+      })
+      this.wndMgr.add(this.keyConfigWnd)
+    } else {
+      this.wndMgr.moveToTop(this.keyConfigWnd)
+    }
   }
 
-  private setUpGamePadLink(): void {
-    const gamepadText = document.getElementById('gamepad')
-    if (gamepadText == null)
-      return
-
+  private openGamepadWnd(): void {
     if (!GamepadManager.isSupported()) {
-      gamepadText.style.display = 'none'
       return
     }
 
-    gamepadText.addEventListener('click', () => {
-      if (this.gamepadWnd == null) {
-        this.gamepadWnd = new GamepadWnd(this.wndMgr, () => {
-          this.gamepadWnd = null
-        })
-        this.wndMgr.add(this.gamepadWnd)
-      } else {
-        this.wndMgr.moveToTop(this.gamepadWnd)
-      }
-    })
+    if (this.gamepadWnd == null) {
+      this.gamepadWnd = new GamepadWnd(this.wndMgr, () => {
+        this.gamepadWnd = null
+      })
+      this.wndMgr.add(this.gamepadWnd)
+    } else {
+      this.wndMgr.moveToTop(this.gamepadWnd)
+    }
   }
 
   private setUpVolumeLink(): void {
@@ -358,35 +530,15 @@ class Main {
     })
   }
 
-  private setUpEqualizerLink(): void {
-    const equalizerText = document.getElementById('equalizer')
-    if (equalizerText == null)
-      return
-
-    equalizerText.addEventListener('click', () => {
-      if (this.equalizerWnd == null) {
-        this.equalizerWnd = new EqualizerWnd(this.wndMgr, () => {
-          this.equalizerWnd = null
-        })
-        this.wndMgr.add(this.equalizerWnd)
-      } else {
-        this.wndMgr.moveToTop(this.equalizerWnd)
-      }
-    })
-  }
-
-  private setUpOpenRomLink(): void {
-    const input = document.getElementById('rom-file') as HTMLInputElement
-    input.addEventListener('change', () => {
-      if (!input.value)
-        return
-      const fileList = input.files
-      if (fileList)
-        this.createAppFromFiles(fileList, 0, 0)
-
-      // Clear.
-      input.value = ''
-    })
+  private openEqualizerWnd(): void {
+    if (this.equalizerWnd == null) {
+      this.equalizerWnd = new EqualizerWnd(this.wndMgr, () => {
+        this.equalizerWnd = null
+      })
+      this.wndMgr.add(this.equalizerWnd)
+    } else {
+      this.wndMgr.moveToTop(this.equalizerWnd)
+    }
   }
 
   private setUpBlur(): void {
